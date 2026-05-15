@@ -1,0 +1,40 @@
+menu "RX5808 Configuration"
+
+    config ELRS_BACKPACK_ENABLE
+        bool "Enable ExpressLRS Backpack Support"
+        default n
+        help
+            Enable wireless control via ExpressLRS backpack using CRSF protocol.
+            Requires UART connection to ExpressLRS backpack module.
+
+            Hardware connections:
+            - ESP32 GPIO16 (RX) → Backpack TX
+            - ESP32 GPIO17 (TX) → Backpack RX
+            - GND → GND
+
+            See ELRS_BACKPACK_README.md for full documentation.
+
+    config ELRS_UART_TX_PIN
+        int "ExpressLRS UART TX Pin"
+        depends on ELRS_BACKPACK_ENABLE
+        default 17
+        help
+            GPIO pin number for UART TX (ESP32 → Backpack RX)
+
+    config ELRS_UART_RX_PIN
+        int "ExpressLRS UART RX Pin"
+        depends on ELRS_BACKPACK_ENABLE
+        default 16
+        help
+            GPIO pin number for UART RX (ESP32 ← Backpack TX)
+
+    config ELRS_UART_BAUD
+        int "ExpressLRS UART Baud Rate"
+        depends on ELRS_BACKPACK_ENABLE
+        default 420000
+        help
+            UART baud rate for CRSF communication.
+            Standard CRSF uses 420000 bps.
+            Only change if your backpack uses different speed.
+
+endmenu

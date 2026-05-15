@@ -1,0 +1,141 @@
+// ExpressLRS Backpack Test/Example Code
+// This file demonstrates how to use the backpack functions
+
+#include "elrs_backpack.h"
+#include "rx5808.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+
+static const char *TAG = "ELRS_TEST";
+
+// Example 1: Send current configuration to ExpressLRS TX
+void elrs_test_send_current_config(void)
+{
+    vrx_config_t config;
+
+    // Get current RX5808 configuration
+    config.band = Chx_count;           // Current band (0-5)
+    config.channel = channel_count;     // Current channel (0-7)
+    config.power = 0;                  // Not used for VRX
+    config.pit_mode = 0;               // Not used for VRX
+    config.freq = Rx5808_Freq[Chx_count][channel_count];  // Current frequency
+
+    // Send to ExpressLRS TX
+    elrs_send_vrx_config(&config);
+
+    ESP_LOGI(TAG, "Sent VRX config: Band=%c%d, Freq=%d MHz",
+             Rx5808_ChxMap[config.band], config.channel + 1, config.freq);
+}
+
+// Example 2: Set a specific channel
+void elrs_test_set_channel(uint8_t band, uint8_t channel)
+{
+    if (band >= 6 || channel >= 8) {
+        ESP_LOGE(TAG, "Invalid band/channel: %d/%d", band, channel);
+        return;
+    }
+
+    // Update RX5808
+    Chx_count = band;
+    channel_count = channel;
+    Rx5808_Set_Channel(band * 8 + channel);
+
+    // Send confirmation to TX
+    vrx_config_t config;
+    config.band = band;
+    config.channel = channel;
+    config.power = 0;
+    config.pit_mode = 0;
+    config.freq = Rx5808_Freq[band][channel];
+
+    elrs_send_vrx_config(&config);
+
+    ESP_LOGI(TAG, "Set channel: Band=%c%d, Freq=%d MHz",
+             Rx5808_ChxMap[band], channel + 1, config.freq);
+}
+
+// Example 3: Set by frequency
+void elrs_test_set_frequency(uint16_t freq)
+{
+    // Find closest band/channel
+    uint8_t band, channel;
+    elrs_freq_to_band_channel(freq, &band, &channel);
+
+    // Set the frequency
+    RX5808_Set_Freq(freq);
+    Chx_count = band;
+    channel_count = channel;
+
+    // Send confirmation
+    vrx_config_t config;
+    config.band = band;
+    config.channel = channel;
+    config.power = 0;
+    config.pit_mode = 0;
+    config.freq = freq;
+
+    elrs_send_vrx_config(&config);
+
+    ESP_LOGI(TAG, "Set frequency: %d MHz (closest: Band=%c%d)",
+             freq, Rx5808_ChxMap[band], channel + 1);
+}
+
+// Example 4: Periodic status update task
+void elrs_test_periodic_update_task(void *param)
+{
+    while (1) {
+        // Send status update every 5 seconds
+        vTaskDelay(pdMS_TO_TICKS(5000));
+
+        elrs_test_send_current_config();
+    }
+}
+
+// Example 5: Test sequence
+void elrs_test_sequence(void)
+{
+    ESP_LOGI(TAG, "Starting ExpressLRS test sequence");
+
+    // Test 1: Send current config
+    ESP_LOGI(TAG, "Test 1: Send current config");
+    elrs_test_send_current_config();
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Test 2: Set to Race Band channel 1 (5658 MHz)
+    ESP_LOGI(TAG, "Test 2: Set to Race Band R1");
+    elrs_test_set_channel(VRX_BAND_R, 0);  // R1
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Test 3: Set by frequency
+    ESP_LOGI(TAG, "Test 3: Set to 5800 MHz");
+    elrs_test_set_frequency(5800);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Test 4: Cycle through Band A
+    ESP_LOGI(TAG, "Test 4: Cycle through Band A");
+    for (uint8_t ch = 0; ch < 8; ch++) {
+        elrs_test_set_channel(VRX_BAND_A, ch);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    ESP_LOGI(TAG, "Test sequence complete");
+}
+
+// How to use in your code:
+//
+// 1. Call elrs_backpack_init() once during system startup (already done in system.c)
+//
+// 2. To manually send current config:
+//    elrs_test_send_current_config();
+//
+// 3. To change channel from code (also updates ExpressLRS TX):
+//    elrs_test_set_channel(VRX_BAND_A, 0);  // Set to A1
+//    elrs_test_set_frequency(5800);          // Set to 5800 MHz
+//
+// 4. Normal operation:
+//    - User changes channel via ExpressLRS TX
+//    - CRSF message received via UART
+//    - elrs_process_msp_command() handles it automatically
+//    - RX5808 channel is updated
+//    - Confirmation sent back to TX
