@@ -10,7 +10,7 @@
 
 static const char *TAG = "WEB_SERVER";
 
-extern uint32_t rx5808_div_setup[];
+extern uint16_t rx5808_div_setup[];
 
 /* Simple HTML template */
 static const char* HTML_TEMPLATE =
@@ -44,8 +44,8 @@ static esp_err_t root_get_handler(httpd_req_t *req) {
 }
 
 static esp_err_t save_post_handler(httpd_req_t *req) {
-    char buf[128];
-    int ret = httpd_req_recv(req, buf, sizeof(buf));
+    char buf[256];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
     if (ret <= 0) return ESP_FAIL;
     buf[ret] = '\0';
 
@@ -82,11 +82,7 @@ static const httpd_uri_t save = {
 };
 
 void web_server_init(void) {
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-
-    wifi_config_t wifi_config = {
+    wifi_config_t ap_config = {
         .ap = {
             .ssid = "RX5808-Div-Config",
             .ssid_len = strlen("RX5808-Div-Config"),
@@ -96,8 +92,20 @@ void web_server_init(void) {
             .authmode = WIFI_AUTH_OPEN
         },
     };
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+
+    wifi_mode_t mode;
+    esp_err_t err = esp_wifi_get_mode(&mode);
+    if (err == ESP_ERR_WIFI_NOT_INIT) {
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+        ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    } else {
+        ESP_ERROR_CHECK(esp_wifi_set_mode(mode | WIFI_MODE_AP));
+    }
+
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
+    esp_wifi_start();
 
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();

@@ -3,6 +3,6 @@
 # project subdirectory.
 #
 
-PROJECT_NAME := hello_world
+PROJECT_NAME := RX5808
 
 include $(IDF_PATH)/make/project.mk
