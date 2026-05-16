@@ -9,14 +9,20 @@
 class ELRSBackpack {
 public:
     void begin(const uint8_t uid[6]) {
+        // ELRS uses the UID as the MAC address
         uint8_t mac[6];
         memcpy(mac, uid, 6);
-        mac[0] &= 0xFE; // Clear multicast bit
+        mac[0] &= 0xFE; // Ensure it's a unicast address
 
+        // In Arduino ESP32, we use esp_wifi_set_mac
         esp_wifi_set_mac(WIFI_IF_STA, mac);
 
-        if (esp_now_init() != ESP_OK) return;
+        if (esp_now_init() != ESP_OK) {
+            Serial.println("Error initializing ESP-NOW");
+            return;
+        }
 
+        // Add broadcast peer for MSP commands
         esp_now_peer_info_t peer = {};
         memset(peer.peer_addr, 0xFF, 6);
         peer.channel = 1;
@@ -25,18 +31,20 @@ public:
     }
 
     void sendVtxConfig(uint8_t channelIndex) {
-        uint8_t payload[4] = {channelIndex, 0, 0, 0};
+        uint8_t payload[4] = {channelIndex, 0, 0, 0}; // [index, freq_msb, power, pit]
         uint16_t func = 0x0059; // MSP_SET_VTX_CONFIG
         uint16_t size = sizeof(payload);
 
         uint8_t buf[64];
-        buf[0] = '$'; buf[1] = 'X'; buf[2] = '<'; buf[3] = 0;
-        buf[4] = func & 0xFF; buf[5] = (func >> 8) & 0xFF;
-        buf[6] = size & 0xFF; buf[7] = (size >> 8) & 0xFF;
+        buf[0] = '$'; buf[1] = 'X'; buf[2] = '<'; buf[3] = 0; // Header
+        buf[4] = func & 0xFF; buf[5] = (func >> 8) & 0xFF; // Function
+        buf[6] = size & 0xFF; buf[7] = (size >> 8) & 0xFF; // Size
         memcpy(&buf[8], payload, size);
 
         uint8_t crc = 0;
-        for (int i = 3; i < 8 + size; i++) crc = crc8_dvb_s2(crc, buf[i]);
+        for (int i = 3; i < 8 + size; i++) {
+            crc = crc8_dvb_s2_step(crc, buf[i]);
+        }
         buf[8 + size] = crc;
 
         uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
@@ -44,7 +52,7 @@ public:
     }
 
 private:
-    uint8_t crc8_dvb_s2(uint8_t crc, uint8_t data) {
+    uint8_t crc8_dvb_s2_step(uint8_t crc, uint8_t data) {
         static const uint8_t table[256] = {
             0x00, 0xD5, 0x7F, 0xAA, 0xFE, 0x2B, 0x81, 0x54, 0x29, 0xFC, 0x56, 0x83, 0xD7, 0x02, 0xA8, 0x7D,
             0x52, 0x87, 0x2D, 0xF8, 0xAC, 0x79, 0xD3, 0x06, 0x7B, 0xAE, 0x04, 0xD1, 0x85, 0x50, 0xFA, 0x2F,
@@ -63,9 +71,7 @@ private:
             0xD6, 0x03, 0xA9, 0x7C, 0x28, 0xFD, 0x57, 0x82, 0xFF, 0x2A, 0x80, 0x55, 0x01, 0xD4, 0x7E, 0xAB,
             0x84, 0x51, 0xFB, 0x2E, 0x7A, 0xAF, 0x05, 0xD0, 0xAD, 0x78, 0xD2, 0x07, 0x53, 0x86, 0x2C, 0xF9
         };
-        uint8_t crc = 0;
-        while (len--) crc = table[crc ^ data];
-        return crc;
+        return table[crc ^ data];
     }
 };
 
