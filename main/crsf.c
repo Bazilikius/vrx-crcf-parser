@@ -90,7 +90,8 @@ void crsf_init(int rx_pin) {
     };
     uart_driver_install(UART_PORT, BUF_SIZE * 2, 0, 0, NULL, 0);
     uart_param_config(UART_PORT, &uart_config);
-    uart_set_pin(UART_PORT, UART_PIN_NO_CHANGE, rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    // Use only RX pin as requested. Set TX to -1 to disable it.
+    uart_set_pin(UART_PORT, -1, rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     xTaskCreate(crsf_task, "crsf_task", 4096, NULL, 10, NULL);
 }
 
