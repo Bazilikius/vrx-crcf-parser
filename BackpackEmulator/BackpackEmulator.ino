@@ -12,6 +12,7 @@ struct Config {
     int ch_b;
     int l_grid;
     uint16_t vtx_table[7][8]; // A, B, E, F, R, L, X
+    uint8_t ch_mask; // Bitmask for enabled channels 1-8
 };
 
 Config config;
@@ -39,12 +40,14 @@ void loadConfig() {
         prefs.putInt("ch_b", 11);
         prefs.putInt("l_grid", 0);
         prefs.putBytes("vtx", default_vtx, sizeof(default_vtx));
+        prefs.putUChar("ch_mask", 0xF1); // Channels 1, 4, 5, 6, 7, 8 enabled (0b11110001)
     }
     prefs.getBytes("uid", config.uid, 6);
     config.ch_v = prefs.getInt("ch_v");
     config.ch_b = prefs.getInt("ch_b");
     config.l_grid = prefs.getInt("l_grid");
     prefs.getBytes("vtx", config.vtx_table, sizeof(config.vtx_table));
+    config.ch_mask = prefs.getUChar("ch_mask");
 }
 
 void saveConfig() {
@@ -53,6 +56,7 @@ void saveConfig() {
     prefs.putInt("ch_b", config.ch_b);
     prefs.putInt("l_grid", config.l_grid);
     prefs.putBytes("vtx", config.vtx_table, sizeof(config.vtx_table));
+    prefs.putUChar("ch_mask", config.ch_mask);
 }
 
 String getVtxHtml() {
@@ -88,6 +92,13 @@ void handleRoot() {
     html += "<div><label>Band CH (S3/CH11):</label><input type='number' name='ch_b' value='" + String(config.ch_b) + "'></div>";
     html += "<div><label>L-Band Selection:</label><select name='l_grid'><option value='0' " + String(config.l_grid==0?"selected":"") + ">Grid 1 (Standard)</option><option value='1' " + String(config.l_grid==1?"selected":"") + ">Grid 2 (ELRS -> Band X)</option></select></div>";
 
+    html += "<div><label>Enabled Channels:</label>";
+    for(int i=0; i<8; i++) {
+        String checked = (config.ch_mask & (1 << i)) ? "checked" : "";
+        html += "<input type='checkbox' name='m_" + String(i) + "' " + checked + "> " + String(i+1) + " &nbsp;";
+    }
+    html += "</div>";
+
     html += getVtxHtml();
 
     html += "<br><input type='submit' class='btn' value='Save & Restart'></form>";
@@ -110,6 +121,12 @@ void handleSave() {
     if (server.hasArg("ch_v")) config.ch_v = server.arg("ch_v").toInt();
     if (server.hasArg("ch_b")) config.ch_b = server.arg("ch_b").toInt();
     if (server.hasArg("l_grid")) config.l_grid = server.arg("l_grid").toInt();
+
+    uint8_t new_mask = 0;
+    for(int i=0; i<8; i++) {
+        if (server.hasArg("m_" + String(i))) new_mask |= (1 << i);
+    }
+    config.ch_mask = new_mask;
 
     for(int b=0; b<7; b++) {
         for(int c=0; c<8; c++) {
@@ -166,11 +183,19 @@ void loop() {
         int v_idx = config.ch_v - 1;
         int b_idx = config.ch_b - 1;
 
+        // Find enabled channels
+        int enabled_chs[8];
+        int enabled_count = 0;
+        for(int i=0; i<8; i++) {
+            if (config.ch_mask & (1 << i)) enabled_chs[enabled_count++] = i;
+        }
+
         int current_ch = -1;
-        if (v_idx >= 0 && v_idx < 16) {
-            current_ch = (crsf.channels[v_idx] - 172) * 8 / (1811 - 172 + 1);
-            if (current_ch < 0) current_ch = 0;
-            if (current_ch > 7) current_ch = 7;
+        if (v_idx >= 0 && v_idx < 16 && enabled_count > 0) {
+            int pos = (crsf.channels[v_idx] - 172) * enabled_count / (1811 - 172 + 1);
+            if (pos < 0) pos = 0;
+            if (pos >= enabled_count) pos = enabled_count - 1;
+            current_ch = enabled_chs[pos];
         }
 
         int current_band = -1;
