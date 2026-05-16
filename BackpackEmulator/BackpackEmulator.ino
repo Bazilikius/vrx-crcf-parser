@@ -11,8 +11,10 @@ struct Config {
     int ch_v;
     int ch_b;
     int l_grid;
-    uint16_t vtx_table[7][8]; // A, B, E, F, R, L, X
+    uint16_t vtx_table[7][8];
     uint8_t ch_mask;
+    int crsf_min;
+    int crsf_max;
 };
 
 Config config;
@@ -33,14 +35,14 @@ const uint16_t default_vtx[7][8] = {
 
 void loadConfig() {
     prefs.begin("backpack", false);
-
-    // Always start with defaults if not set
     if (!prefs.isKey("ch_v")) {
         memset(config.uid, 0, 6);
         config.ch_v = 12;
         config.ch_b = 11;
         config.l_grid = 0;
-        config.ch_mask = 0xF1; // 1, 4, 5, 6, 7, 8
+        config.ch_mask = 0b11110001; // 1, 4, 5, 6, 7, 8 (2, 3 disabled)
+        config.crsf_min = 500;
+        config.crsf_max = 2500;
         memcpy(config.vtx_table, default_vtx, sizeof(default_vtx));
     } else {
         prefs.getBytes("uid", config.uid, 6);
@@ -48,6 +50,8 @@ void loadConfig() {
         config.ch_b = prefs.getInt("ch_b");
         config.l_grid = prefs.getInt("l_grid");
         config.ch_mask = prefs.getUChar("ch_mask");
+        config.crsf_min = prefs.getInt("c_min", 500);
+        config.crsf_max = prefs.getInt("c_max", 2500);
         if (prefs.getBytes("vtx", config.vtx_table, sizeof(config.vtx_table)) != sizeof(config.vtx_table)) {
             memcpy(config.vtx_table, default_vtx, sizeof(default_vtx));
         }
@@ -60,6 +64,8 @@ void saveConfig() {
     prefs.putInt("ch_b", config.ch_b);
     prefs.putInt("l_grid", config.l_grid);
     prefs.putUChar("ch_mask", config.ch_mask);
+    prefs.putInt("c_min", config.crsf_min);
+    prefs.putInt("c_max", config.crsf_max);
     prefs.putBytes("vtx", config.vtx_table, sizeof(config.vtx_table));
 }
 
@@ -96,6 +102,12 @@ void handleRoot() {
     html += "<div style='flex:1;'><label>Video CH (S2):</label><input type='number' name='ch_v' value='" + String(config.ch_v) + "'></div>";
     html += "<div style='flex:1;'><label>Band CH (S3):</label><input type='number' name='ch_b' value='" + String(config.ch_b) + "'></div>";
     html += "</div>";
+
+    html += "<div style='display:flex;gap:10px;'>";
+    html += "<div style='flex:1;'><label>CRSF Min:</label><input type='number' name='c_min' value='" + String(config.crsf_min) + "'></div>";
+    html += "<div style='flex:1;'><label>CRSF Max:</label><input type='number' name='c_max' value='" + String(config.crsf_max) + "'></div>";
+    html += "</div>";
+
     html += "<div><label>L-Band Mode:</label><select name='l_grid'><option value='0' " + String(config.l_grid==0?"selected":"") + ">Grid 1 (Std)</option><option value='1' " + String(config.l_grid==1?"selected":"") + ">Grid 2 (ELRS -> Band X)</option></select></div>";
 
     html += "<div><label>Active Channels:</label>";
@@ -128,6 +140,8 @@ void handleSave() {
     }
     if (server.hasArg("ch_v")) config.ch_v = server.arg("ch_v").toInt();
     if (server.hasArg("ch_b")) config.ch_b = server.arg("ch_b").toInt();
+    if (server.hasArg("c_min")) config.crsf_min = server.arg("c_min").toInt();
+    if (server.hasArg("c_max")) config.crsf_max = server.arg("c_max").toInt();
     if (server.hasArg("l_grid")) config.l_grid = server.arg("l_grid").toInt();
 
     uint8_t new_mask = 0;
@@ -186,19 +200,27 @@ void loop() {
     if (crsf.updated) {
         int v_idx = config.ch_v - 1;
         int b_idx = config.ch_b - 1;
+
         int enabled_chs[8]; int enabled_count = 0;
         for(int i=0; i<8; i++) { if (config.ch_mask & (1 << i)) enabled_chs[enabled_count++] = i; }
+
         int current_ch = -1;
         if (v_idx >= 0 && v_idx < 16 && enabled_count > 0) {
-            int pos = (crsf.channels[v_idx] - 172) * enabled_count / (1811 - 172 + 1);
+            int val = crsf.channels[v_idx];
+            // Linear mapping with configurable min/max
+            int pos = (val - config.crsf_min) * enabled_count / (config.crsf_max - config.crsf_min + 1);
             if (pos < 0) pos = 0; if (pos >= enabled_count) pos = enabled_count - 1;
             current_ch = enabled_chs[pos];
         }
+
         int current_band = -1;
         if (b_idx >= 0 && b_idx < 16) {
-            current_band = (crsf.channels[b_idx] - 172) * 6 / (1811 - 172 + 1);
-            if (current_band < 0) current_band = 0; if (current_band > 5) current_band = 5;
+            int val = crsf.channels[b_idx];
+            int pos = (val - config.crsf_min) * 6 / (config.crsf_max - config.crsf_min + 1);
+            if (pos < 0) pos = 0; if (pos > 5) pos = 5;
+            current_band = pos;
         }
+
         if (current_ch != -1 && current_band != -1) {
             if (current_ch != last_channel || current_band != last_band) {
                 last_channel = current_ch; last_band = current_band;
@@ -206,7 +228,8 @@ void loop() {
                 if (current_band == 5 && config.l_grid == 1) { msp_idx = 6 * 8 + current_ch; log_band = 6; }
                 else { msp_idx = current_band * 8 + current_ch; }
                 backpack.sendVtxConfig(msp_idx);
-                Serial.printf("Switch: B%d C%d (%d MHz)\n", current_band, current_ch+1, config.vtx_table[log_band][current_ch]);
+                Serial.printf("Switch: B%d C%d (%d MHz) [CRSF: %d]\n",
+                              current_band, current_ch+1, config.vtx_table[log_band][current_ch], crsf.channels[v_idx]);
             }
         }
         crsf.updated = false;
