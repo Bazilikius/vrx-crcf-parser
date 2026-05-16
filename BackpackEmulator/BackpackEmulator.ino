@@ -41,8 +41,8 @@ void loadConfig() {
         config.ch_b = 11;
         config.l_grid = 0;
         config.ch_mask = 0b11110001; // 1, 4, 5, 6, 7, 8 (2, 3 disabled)
-        config.crsf_min = 500;
-        config.crsf_max = 2500;
+        config.crsf_min = 991;
+        config.crsf_max = 2012;
         memcpy(config.vtx_table, default_vtx, sizeof(default_vtx));
     } else {
         prefs.getBytes("uid", config.uid, 6);
@@ -50,8 +50,8 @@ void loadConfig() {
         config.ch_b = prefs.getInt("ch_b");
         config.l_grid = prefs.getInt("l_grid");
         config.ch_mask = prefs.getUChar("ch_mask");
-        config.crsf_min = prefs.getInt("c_min", 500);
-        config.crsf_max = prefs.getInt("c_max", 2500);
+        config.crsf_min = prefs.getInt("c_min", 991);
+        config.crsf_max = prefs.getInt("c_max", 2012);
         if (prefs.getBytes("vtx", config.vtx_table, sizeof(config.vtx_table)) != sizeof(config.vtx_table)) {
             memcpy(config.vtx_table, default_vtx, sizeof(default_vtx));
         }
@@ -104,8 +104,8 @@ void handleRoot() {
     html += "</div>";
 
     html += "<div style='display:flex;gap:10px;'>";
-    html += "<div style='flex:1;'><label>CRSF Min:</label><input type='number' name='c_min' value='" + String(config.crsf_min) + "'></div>";
-    html += "<div style='flex:1;'><label>CRSF Max:</label><input type='number' name='c_max' value='" + String(config.crsf_max) + "'></div>";
+    html += "<div style='flex:1;'><label>CRSF Min (us):</label><input type='number' name='c_min' value='" + String(config.crsf_min) + "'></div>";
+    html += "<div style='flex:1;'><label>CRSF Max (us):</label><input type='number' name='c_max' value='" + String(config.crsf_max) + "'></div>";
     html += "</div>";
 
     html += "<div><label>L-Band Mode:</label><select name='l_grid'><option value='0' " + String(config.l_grid==0?"selected":"") + ">Grid 1 (Std)</option><option value='1' " + String(config.l_grid==1?"selected":"") + ">Grid 2 (ELRS -> Band X)</option></select></div>";
@@ -207,7 +207,8 @@ void loop() {
         int current_ch = -1;
         if (v_idx >= 0 && v_idx < 16 && enabled_count > 0) {
             int val = crsf.channels[v_idx];
-            // Linear mapping with configurable min/max
+            // Linear mapping using the specific 991-2012 range (default)
+            // formula: (val - min) * enabled_count / (max - min + 1)
             int pos = (val - config.crsf_min) * enabled_count / (config.crsf_max - config.crsf_min + 1);
             if (pos < 0) pos = 0; if (pos >= enabled_count) pos = enabled_count - 1;
             current_ch = enabled_chs[pos];
