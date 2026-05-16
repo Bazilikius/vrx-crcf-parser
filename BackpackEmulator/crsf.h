@@ -12,32 +12,45 @@ public:
 
     void begin(HardwareSerial &serial) {
         _serial = &serial;
-        // CRSF baud rate 416700
-        _serial->begin(416700, SERIAL_8N1, 16, -1); // RX pin 16, no TX
+        _serial->begin(416700, SERIAL_8N1, 16, -1);
     }
 
     void handle() {
         while (_serial->available()) {
             uint8_t b = _serial->read();
-            if (b == 0xC8) { // Sync
-                uint8_t len = _serial->read();
-                if (len >= 2 && len <= 62) {
-                    uint8_t buf[64];
-                    buf[0] = 0xC8; buf[1] = len;
-                    _serial->readBytes(&buf[2], len);
-
-                    uint8_t type = buf[2];
-                    uint8_t expected_crc = buf[len + 1];
-                    if (crsf_crc8(&buf[2], len - 1) == expected_crc) {
-                        if (type == 0x16) parseChannels(&buf[3]);
+            switch (_state) {
+                case 0: // Sync
+                    if (b == 0xC8) {
+                        _buf[0] = b; _state = 1;
                     }
-                }
+                    break;
+                case 1: // Length
+                    if (b >= 2 && b <= 62) {
+                        _buf[1] = b; _len = b; _idx = 2; _state = 2;
+                    } else {
+                        _state = 0;
+                    }
+                    break;
+                case 2: // Payload + CRC
+                    _buf[_idx++] = b;
+                    if (_idx >= _len + 2) {
+                        uint8_t expected_crc = _buf[_len + 1];
+                        if (crsf_crc8(&_buf[2], _len - 1) == expected_crc) {
+                            if (_buf[2] == 0x16) parseChannels(&_buf[3]);
+                        }
+                        _state = 0;
+                    }
+                    break;
             }
         }
     }
 
 private:
     HardwareSerial *_serial;
+    uint8_t _buf[64];
+    uint8_t _state = 0;
+    uint8_t _len = 0;
+    uint8_t _idx = 0;
 
     uint8_t crsf_crc8(const uint8_t *ptr, uint8_t len) {
         static const uint8_t table[256] = {
