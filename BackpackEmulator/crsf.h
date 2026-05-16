@@ -7,7 +7,7 @@
 
 class CRSFParser {
 public:
-    uint16_t channels[CRSF_MAX_CHANNELS];
+    uint16_t channels[CRSF_MAX_CHANNELS]; // Now in microseconds (us)
     bool updated = false;
 
     void begin(HardwareSerial &serial) {
@@ -19,23 +19,12 @@ public:
         while (_serial->available()) {
             uint8_t b = _serial->read();
             switch (_state) {
-                case 0: // Sync
-                    if (b == 0xC8) {
-                        _buf[0] = b; _state = 1;
-                    }
-                    break;
-                case 1: // Length
-                    if (b >= 2 && b <= 62) {
-                        _buf[1] = b; _len = b; _idx = 2; _state = 2;
-                    } else {
-                        _state = 0;
-                    }
-                    break;
-                case 2: // Payload + CRC
+                case 0: if (b == 0xC8) { _buf[0] = b; _state = 1; } break;
+                case 1: if (b >= 2 && b <= 62) { _buf[1] = b; _len = b; _idx = 2; _state = 2; } else _state = 0; break;
+                case 2:
                     _buf[_idx++] = b;
                     if (_idx >= _len + 2) {
-                        uint8_t expected_crc = _buf[_len + 1];
-                        if (crsf_crc8(&_buf[2], _len - 1) == expected_crc) {
+                        if (crsf_crc8(&_buf[2], _len - 1) == _buf[_len + 1]) {
                             if (_buf[2] == 0x16) parseChannels(&_buf[3]);
                         }
                         _state = 0;
@@ -48,9 +37,7 @@ public:
 private:
     HardwareSerial *_serial;
     uint8_t _buf[64];
-    uint8_t _state = 0;
-    uint8_t _len = 0;
-    uint8_t _idx = 0;
+    uint8_t _state = 0; uint8_t _len = 0; uint8_t _idx = 0;
 
     uint8_t crsf_crc8(const uint8_t *ptr, uint8_t len) {
         static const uint8_t table[256] = {
@@ -76,23 +63,28 @@ private:
         return crc;
     }
 
-    void parseChannels(const uint8_t *payload) {
-        channels[0]  = (uint16_t)((payload[0]       | payload[1] << 8)                          & 0x07FF);
-        channels[1]  = (uint16_t)((payload[1] >> 3  | payload[2] << 5)                          & 0x07FF);
-        channels[2]  = (uint16_t)((payload[2] >> 6  | payload[3] << 2 | payload[4] << 10)       & 0x07FF);
-        channels[3]  = (uint16_t)((payload[4] >> 1  | payload[5] << 7)                          & 0x07FF);
-        channels[4]  = (uint16_t)((payload[5] >> 4  | payload[6] << 4)                          & 0x07FF);
-        channels[5]  = (uint16_t)((payload[6] >> 7  | payload[7] << 1 | payload[8] << 9)        & 0x07FF);
-        channels[6]  = (uint16_t)((payload[8] >> 2  | payload[9] << 6)                          & 0x07FF);
-        channels[7]  = (uint16_t)((payload[9] >> 5  | payload[10] << 3)                         & 0x07FF);
-        channels[8]  = (uint16_t)((payload[11]      | payload[12] << 8)                         & 0x07FF);
-        channels[9]  = (uint16_t)((payload[12] >> 3 | payload[13] << 5)                         & 0x07FF);
-        channels[10] = (uint16_t)((payload[13] >> 6 | payload[14] << 2 | payload[15] << 10)      & 0x07FF);
-        channels[11] = (uint16_t)((payload[15] >> 1 | payload[16] << 7)                         & 0x07FF);
-        channels[12] = (uint16_t)((payload[16] >> 4 | payload[17] << 4)                         & 0x07FF);
-        channels[13] = (uint16_t)((payload[17] >> 7 | payload[18] << 1 | payload[19] << 9)       & 0x07FF);
-        channels[14] = (uint16_t)((payload[19] >> 2 | payload[20] << 6)                         & 0x07FF);
-        channels[15] = (uint16_t)((payload[20] >> 5 | payload[21] << 3)                         & 0x07FF);
+    uint16_t toUs(uint16_t raw) {
+        // CRSF raw (0-2047) to PWM us formula: (raw * 5 / 8) + 880
+        return (uint16_t)((raw * 0.625f) + 880);
+    }
+
+    void parseChannels(const uint8_t *p) {
+        channels[0]  = toUs((p[0]       | p[1] << 8)                          & 0x07FF);
+        channels[1]  = toUs((p[1] >> 3  | p[2] << 5)                          & 0x07FF);
+        channels[2]  = toUs((p[2] >> 6  | p[3] << 2 | p[4] << 10)       & 0x07FF);
+        channels[3]  = toUs((p[4] >> 1  | p[5] << 7)                          & 0x07FF);
+        channels[4]  = toUs((p[5] >> 4  | p[6] << 4)                          & 0x07FF);
+        channels[5]  = toUs((p[6] >> 7  | p[7] << 1 | p[8] << 9)        & 0x07FF);
+        channels[6]  = toUs((p[8] >> 2  | p[9] << 6)                          & 0x07FF);
+        channels[7]  = toUs((p[9] >> 5  | p[10] << 3)                         & 0x07FF);
+        channels[8]  = toUs((p[11]      | p[12] << 8)                         & 0x07FF);
+        channels[9]  = toUs((p[12] >> 3 | p[13] << 5)                         & 0x07FF);
+        channels[10] = toUs((p[13] >> 6 | p[14] << 2 | p[15] << 10)      & 0x07FF);
+        channels[11] = toUs((p[15] >> 1 | p[16] << 7)                         & 0x07FF);
+        channels[12] = toUs((p[16] >> 4 | p[17] << 4)                         & 0x07FF);
+        channels[13] = toUs((p[17] >> 7 | p[18] << 1 | p[19] << 9)       & 0x07FF);
+        channels[14] = toUs((p[19] >> 2 | p[20] << 6)                         & 0x07FF);
+        channels[15] = toUs((p[20] >> 5 | p[21] << 3)                         & 0x07FF);
         updated = true;
     }
 };
