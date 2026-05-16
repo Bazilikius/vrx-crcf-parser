@@ -12,7 +12,7 @@ struct Config {
     int ch_b;
     int l_grid;
     uint16_t vtx_table[7][8]; // A, B, E, F, R, L, X
-    uint8_t ch_mask; // Bitmask for enabled channels 1-8
+    uint8_t ch_mask;
 };
 
 Config config;
@@ -33,21 +33,25 @@ const uint16_t default_vtx[7][8] = {
 
 void loadConfig() {
     prefs.begin("backpack", false);
+
+    // Always start with defaults if not set
     if (!prefs.isKey("ch_v")) {
-        uint8_t default_uid[6] = {0,0,0,0,0,0};
-        prefs.putBytes("uid", default_uid, 6);
-        prefs.putInt("ch_v", 12);
-        prefs.putInt("ch_b", 11);
-        prefs.putInt("l_grid", 0);
-        prefs.putBytes("vtx", default_vtx, sizeof(default_vtx));
-        prefs.putUChar("ch_mask", 0xF1); // Channels 1, 4, 5, 6, 7, 8 enabled (0b11110001)
+        memset(config.uid, 0, 6);
+        config.ch_v = 12;
+        config.ch_b = 11;
+        config.l_grid = 0;
+        config.ch_mask = 0xF1; // 1, 4, 5, 6, 7, 8
+        memcpy(config.vtx_table, default_vtx, sizeof(default_vtx));
+    } else {
+        prefs.getBytes("uid", config.uid, 6);
+        config.ch_v = prefs.getInt("ch_v");
+        config.ch_b = prefs.getInt("ch_b");
+        config.l_grid = prefs.getInt("l_grid");
+        config.ch_mask = prefs.getUChar("ch_mask");
+        if (prefs.getBytes("vtx", config.vtx_table, sizeof(config.vtx_table)) != sizeof(config.vtx_table)) {
+            memcpy(config.vtx_table, default_vtx, sizeof(default_vtx));
+        }
     }
-    prefs.getBytes("uid", config.uid, 6);
-    config.ch_v = prefs.getInt("ch_v");
-    config.ch_b = prefs.getInt("ch_b");
-    config.l_grid = prefs.getInt("l_grid");
-    prefs.getBytes("vtx", config.vtx_table, sizeof(config.vtx_table));
-    config.ch_mask = prefs.getUChar("ch_mask");
 }
 
 void saveConfig() {
@@ -55,20 +59,20 @@ void saveConfig() {
     prefs.putInt("ch_v", config.ch_v);
     prefs.putInt("ch_b", config.ch_b);
     prefs.putInt("l_grid", config.l_grid);
-    prefs.putBytes("vtx", config.vtx_table, sizeof(config.vtx_table));
     prefs.putUChar("ch_mask", config.ch_mask);
+    prefs.putBytes("vtx", config.vtx_table, sizeof(config.vtx_table));
 }
 
 String getVtxHtml() {
-    String html = "<h3>VTX Frequency Table (MHz)</h3><div style='overflow-x:auto;'><table><tr><th>Band</th>";
+    String html = "<h3>VTX Frequencies (MHz)</h3><div style='overflow-x:auto;'><table style='font-size:14px;'><tr><th>Band</th>";
     for(int c=1; c<=8; c++) html += "<th>CH" + String(c) + "</th>";
     html += "</tr>";
-    const char* band_names[] = {"A", "B", "E", "F", "R", "L", "X (ELRS L)"};
+    const char* band_names[] = {"A", "B", "E", "F", "R", "L", "X (ELRS)"};
     for(int b=0; b<7; b++) {
         html += "<tr><td><b>" + String(band_names[b]) + "</b></td>";
         for(int c=0; c<8; c++) {
             String name = "f_" + String(b) + "_" + String(c);
-            html += "<td><input type='number' name='" + name + "' value='" + String(config.vtx_table[b][c]) + "' style='width:60px;'></td>";
+            html += "<td><input type='number' name='" + name + "' value='" + String(config.vtx_table[b][c]) + "' style='width:55px;'></td>";
         }
         html += "</tr>";
     }
@@ -79,8 +83,8 @@ String getVtxHtml() {
 const char* HTML_HEADER =
 "<!DOCTYPE html><html><head><title>Backpack Config</title>"
 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-"<style>body{font-family:sans-serif;margin:20px;}div{margin-bottom:15px;}label{display:block;}input,select{padding:8px;} .btn{padding:10px 20px;background:#007bff;color:#fff;border:none;border-radius:4px;cursor:pointer;text-decoration:none;display:inline-block;} .btn-secondary{background:#6c757d;} table{border-collapse:collapse;} td,th{border:1px solid #ccc;padding:5px; text-align:center;}</style></head>"
-"<body><h1>Backpack Emulator</h1><form action='/save' method='POST'>";
+"<style>body{font-family:sans-serif;margin:15px;line-height:1.5;}div{margin-bottom:12px;}label{display:block;font-weight:bold;}input[type=text],input[type=number],select{padding:6px;width:100%;box-sizing:border-box;} .btn{padding:10px 15px;background:#007bff;color:#fff;border:none;border-radius:4px;cursor:pointer;text-decoration:none;display:inline-block;} .btn-sec{background:#6c757d;} table{border-collapse:collapse;width:100%;} td,th{border:1px solid #ccc;padding:4px; text-align:center;}</style></head>"
+"<body><h1>Backpack Bridge</h1><form action='/save' method='POST'>";
 
 void handleRoot() {
     String html = HTML_HEADER;
@@ -88,11 +92,13 @@ void handleRoot() {
     snprintf(uid_buf, 13, "%02X%02X%02X%02X%02X%02X", config.uid[0], config.uid[1], config.uid[2], config.uid[3], config.uid[4], config.uid[5]);
 
     html += "<div><label>Binding UID (HEX):</label><input type='text' name='uid' value='" + String(uid_buf) + "' pattern='[0-9A-Fa-f]{12}'></div>";
-    html += "<div><label>Video CH (S2/CH12):</label><input type='number' name='ch_v' value='" + String(config.ch_v) + "'></div>";
-    html += "<div><label>Band CH (S3/CH11):</label><input type='number' name='ch_b' value='" + String(config.ch_b) + "'></div>";
-    html += "<div><label>L-Band Selection:</label><select name='l_grid'><option value='0' " + String(config.l_grid==0?"selected":"") + ">Grid 1 (Standard)</option><option value='1' " + String(config.l_grid==1?"selected":"") + ">Grid 2 (ELRS -> Band X)</option></select></div>";
+    html += "<div style='display:flex;gap:10px;'>";
+    html += "<div style='flex:1;'><label>Video CH (S2):</label><input type='number' name='ch_v' value='" + String(config.ch_v) + "'></div>";
+    html += "<div style='flex:1;'><label>Band CH (S3):</label><input type='number' name='ch_b' value='" + String(config.ch_b) + "'></div>";
+    html += "</div>";
+    html += "<div><label>L-Band Mode:</label><select name='l_grid'><option value='0' " + String(config.l_grid==0?"selected":"") + ">Grid 1 (Std)</option><option value='1' " + String(config.l_grid==1?"selected":"") + ">Grid 2 (ELRS -> Band X)</option></select></div>";
 
-    html += "<div><label>Enabled Channels:</label>";
+    html += "<div><label>Active Channels:</label>";
     for(int i=0; i<8; i++) {
         String checked = (config.ch_mask & (1 << i)) ? "checked" : "";
         html += "<input type='checkbox' name='m_" + String(i) + "' " + checked + "> " + String(i+1) + " &nbsp;";
@@ -102,9 +108,11 @@ void handleRoot() {
     html += getVtxHtml();
 
     html += "<br><input type='submit' class='btn' value='Save & Restart'></form>";
-    html += "<hr><h2>Binding</h2><p>Put your VRX into binding mode, then click below:</p>";
-    html += "<a href='/bind' class='btn btn-secondary'>Send Bind Packet</a>";
-    html += "</body></html>";
+    html += "<hr><h3>Binding & Maintenance</h3>";
+    html += "<div style='display:flex;gap:10px;'>";
+    html += "<a href='/bind' class='btn btn-sec'>Send Bind Packet</a>";
+    html += "<a href='/reset_vtx' class='btn btn-sec' onclick='return confirm(\"Reset VTX table to defaults?\")'>Reset Table</a>";
+    html += "</div></body></html>";
     server.send(200, "text/html", html);
 }
 
@@ -123,17 +131,13 @@ void handleSave() {
     if (server.hasArg("l_grid")) config.l_grid = server.arg("l_grid").toInt();
 
     uint8_t new_mask = 0;
-    for(int i=0; i<8; i++) {
-        if (server.hasArg("m_" + String(i))) new_mask |= (1 << i);
-    }
+    for(int i=0; i<8; i++) { if (server.hasArg("m_" + String(i))) new_mask |= (1 << i); }
     config.ch_mask = new_mask;
 
     for(int b=0; b<7; b++) {
         for(int c=0; c<8; c++) {
             String name = "f_" + String(b) + "_" + String(c);
-            if (server.hasArg(name)) {
-                config.vtx_table[b][c] = server.arg(name).toInt();
-            }
+            if (server.hasArg(name)) config.vtx_table[b][c] = server.arg(name).toInt();
         }
     }
 
@@ -146,7 +150,14 @@ void handleSave() {
 
 void handleBind() {
     backpack.sendBindPacket(config.uid);
-    server.send(200, "text/plain", "Bind packet sent! Check your VRX.");
+    server.send(200, "text/plain", "Bind packet sent!");
+}
+
+void handleResetVtx() {
+    memcpy(config.vtx_table, default_vtx, sizeof(default_vtx));
+    saveConfig();
+    server.sendHeader("Location", "/");
+    server.send(303);
 }
 
 int last_band = -1;
@@ -155,72 +166,47 @@ int last_channel = -1;
 void setup() {
     Serial.begin(115200);
     loadConfig();
-
     WiFi.mode(WIFI_AP_STA);
-    uint8_t mac[6];
-    memcpy(mac, config.uid, 6);
-    mac[0] &= 0xFE;
+    uint8_t mac[6]; memcpy(mac, config.uid, 6); mac[0] &= 0xFE;
     esp_wifi_set_mac(WIFI_IF_STA, mac);
-
     WiFi.softAP("Backpack-Emul");
-
     server.on("/", handleRoot);
     server.on("/save", HTTP_POST, handleSave);
     server.on("/bind", handleBind);
+    server.on("/reset_vtx", handleResetVtx);
     server.begin();
-
     backpack.begin(config.uid);
     crsf.begin(Serial2);
-
-    Serial.println("Backpack Emulator Started");
+    Serial.println("Ready.");
 }
 
 void loop() {
     server.handleClient();
     crsf.handle();
-
     if (crsf.updated) {
         int v_idx = config.ch_v - 1;
         int b_idx = config.ch_b - 1;
-
-        // Find enabled channels
-        int enabled_chs[8];
-        int enabled_count = 0;
-        for(int i=0; i<8; i++) {
-            if (config.ch_mask & (1 << i)) enabled_chs[enabled_count++] = i;
-        }
-
+        int enabled_chs[8]; int enabled_count = 0;
+        for(int i=0; i<8; i++) { if (config.ch_mask & (1 << i)) enabled_chs[enabled_count++] = i; }
         int current_ch = -1;
         if (v_idx >= 0 && v_idx < 16 && enabled_count > 0) {
             int pos = (crsf.channels[v_idx] - 172) * enabled_count / (1811 - 172 + 1);
-            if (pos < 0) pos = 0;
-            if (pos >= enabled_count) pos = enabled_count - 1;
+            if (pos < 0) pos = 0; if (pos >= enabled_count) pos = enabled_count - 1;
             current_ch = enabled_chs[pos];
         }
-
         int current_band = -1;
         if (b_idx >= 0 && b_idx < 16) {
             current_band = (crsf.channels[b_idx] - 172) * 6 / (1811 - 172 + 1);
-            if (current_band < 0) current_band = 0;
-            if (current_band > 5) current_band = 5;
+            if (current_band < 0) current_band = 0; if (current_band > 5) current_band = 5;
         }
-
         if (current_ch != -1 && current_band != -1) {
             if (current_ch != last_channel || current_band != last_band) {
-                last_channel = current_ch;
-                last_band = current_band;
-
-                uint8_t msp_idx;
-                int display_band = current_band;
-                if (current_band == 5 && config.l_grid == 1) {
-                    msp_idx = 6 * 8 + current_ch; // Band X
-                    display_band = 6;
-                } else {
-                    msp_idx = current_band * 8 + current_ch;
-                }
+                last_channel = current_ch; last_band = current_band;
+                uint8_t msp_idx; int log_band = current_band;
+                if (current_band == 5 && config.l_grid == 1) { msp_idx = 6 * 8 + current_ch; log_band = 6; }
+                else { msp_idx = current_band * 8 + current_ch; }
                 backpack.sendVtxConfig(msp_idx);
-                Serial.printf("Switch: Band %d, Channel %d (%d MHz)\n",
-                              current_band, current_ch+1, config.vtx_table[display_band][current_ch]);
+                Serial.printf("Switch: B%d C%d (%d MHz)\n", current_band, current_ch+1, config.vtx_table[log_band][current_ch]);
             }
         }
         crsf.updated = false;
