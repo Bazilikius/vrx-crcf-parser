@@ -9,12 +9,11 @@
 class ELRSBackpack {
 public:
     void begin(const uint8_t uid[6]) {
-        // ELRS uses the UID as the MAC address
+        // Set MAC address to match UID (sanitized)
         uint8_t mac[6];
         memcpy(mac, uid, 6);
-        mac[0] &= 0xFE; // Ensure it's a unicast address
+        mac[0] &= 0xFE; // Clear multicast bit
 
-        // In Arduino ESP32, we use esp_wifi_set_mac
         esp_wifi_set_mac(WIFI_IF_STA, mac);
 
         if (esp_now_init() != ESP_OK) {
@@ -22,7 +21,7 @@ public:
             return;
         }
 
-        // Add broadcast peer for MSP commands
+        // Add broadcast peer for MSP commands and binding
         esp_now_peer_info_t peer = {};
         memset(peer.peer_addr, 0xFF, 6);
         peer.channel = 1;
@@ -31,20 +30,25 @@ public:
     }
 
     void sendVtxConfig(uint8_t channelIndex) {
-        uint8_t payload[4] = {channelIndex, 0, 0, 0}; // [index, freq_msb, power, pit]
-        uint16_t func = 0x0059; // MSP_SET_VTX_CONFIG
-        uint16_t size = sizeof(payload);
+        uint8_t payload[4] = {channelIndex, 0, 0, 0}; // [idx, freq_msb, power, pit]
+        sendMsp(0x0059, payload, 4); // MSP_SET_VTX_CONFIG
+    }
 
+    void sendBindPacket(const uint8_t uid[6]) {
+        // ELRS Bind Packet is MSP_ELRS_BIND (0x0009) with 6-byte UID payload
+        sendMsp(0x0009, uid, 6);
+        Serial.println("Sent ELRS Bind Packet");
+    }
+
+    void sendMsp(uint16_t func, const uint8_t *payload, uint16_t size) {
         uint8_t buf[64];
-        buf[0] = '$'; buf[1] = 'X'; buf[2] = '<'; buf[3] = 0; // Header
-        buf[4] = func & 0xFF; buf[5] = (func >> 8) & 0xFF; // Function
-        buf[6] = size & 0xFF; buf[7] = (size >> 8) & 0xFF; // Size
+        buf[0] = '$'; buf[1] = 'X'; buf[2] = '<'; buf[3] = 0;
+        buf[4] = func & 0xFF; buf[5] = (func >> 8) & 0xFF;
+        buf[6] = size & 0xFF; buf[7] = (size >> 8) & 0xFF;
         memcpy(&buf[8], payload, size);
 
         uint8_t crc = 0;
-        for (int i = 3; i < 8 + size; i++) {
-            crc = crc8_dvb_s2_step(crc, buf[i]);
-        }
+        for (int i = 3; i < 8 + size; i++) crc = crc8_dvb_s2_step(crc, buf[i]);
         buf[8 + size] = crc;
 
         uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};

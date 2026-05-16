@@ -10,6 +10,7 @@ It is specifically designed for users with a **RadioMaster Boxer** or similar ra
   - **S2 (Channel 12)**: Switches through 8 video channels.
   - **S3 (Channel 11)**: Switches through 6 bands (A, B, E, F, R, L).
 - **Web Configurator**: Built-in WiFi portal for easy setup.
+- **Binding Support**: Manual binding trigger to pair with your VRX.
 - **Dual L-Band Support**: Choose between standard and ELRS L-band grids.
 - **Persistence**: Settings are saved in the ESP32's memory (NVS).
 
@@ -25,11 +26,16 @@ It is specifically designed for users with a **RadioMaster Boxer** or similar ra
 4. Select your board (e.g., "ESP32 Dev Module").
 5. Click **Upload**.
 
-## Configuration
+## Configuration & Binding
 1. After uploading, search for a WiFi network named **"Backpack-Emul"** and connect to it.
 2. Open your web browser and go to `http://192.168.4.1`.
 3. Enter your **Binding UID** (this must match the UID generated from your binding phrase on your ELRS transmitter).
-4. (Optional) Adjust the CRSF channel mappings for Video and Band switching.
-5. Select your preferred **L-Band grid**.
+4. Select your preferred **L-Band grid**.
    - *Tip: If you select Grid 2 (ELRS), the bridge will send "Band X" commands to the receiver. Ensure your receiver's Band X is configured with the correct frequencies.*
-6. Click **Save**. The ESP32 will restart with the new settings.
+5. Click **Save & Restart**.
+6. To bind your VRX:
+   - Put your VRX into binding mode (refer to your VRX documentation).
+   - Click the **"Send Bind Packet"** button on the configuration page.
+
+## Note for RX5808 Diversity Users
+If your receiver uses the firmware from the LochnessFPV/RX5808-Div repository, ensure you have enabled the "ELRS Backpack" feature in the receiver's setup menu to allow it to receive commands from this bridge.
