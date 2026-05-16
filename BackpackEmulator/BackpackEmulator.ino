@@ -40,7 +40,7 @@ void loadConfig() {
         config.ch_v = 12;
         config.ch_b = 11;
         config.l_grid = 0;
-        config.ch_mask = 0b11110001; // 1, 4, 5, 6, 7, 8 (2, 3 disabled)
+        config.ch_mask = 0xFF; // All enabled
         config.crsf_min = 991;
         config.crsf_max = 2012;
         memcpy(config.vtx_table, default_vtx, sizeof(default_vtx));
@@ -49,7 +49,7 @@ void loadConfig() {
         config.ch_v = prefs.getInt("ch_v");
         config.ch_b = prefs.getInt("ch_b");
         config.l_grid = prefs.getInt("l_grid");
-        config.ch_mask = prefs.getUChar("ch_mask");
+        config.ch_mask = prefs.getUChar("ch_mask", 0xFF);
         config.crsf_min = prefs.getInt("c_min", 991);
         config.crsf_max = prefs.getInt("c_max", 2012);
         if (prefs.getBytes("vtx", config.vtx_table, sizeof(config.vtx_table)) != sizeof(config.vtx_table)) {
@@ -207,9 +207,19 @@ void loop() {
         int current_ch = -1;
         if (v_idx >= 0 && v_idx < 16 && enabled_count > 0) {
             int val = crsf.channels[v_idx];
-            // Linear mapping using the specific 991-2012 range (default)
-            // formula: (val - min) * enabled_count / (max - min + 1)
-            int pos = (val - config.crsf_min) * enabled_count / (config.crsf_max - config.crsf_min + 1);
+            // Logically: 1=min, 5=mid, 8=max
+            // Value range 991 to 2012. Midpoint 1500.
+            // Split into two linear segments
+            int pos = 0;
+            if (val <= 1500) {
+                // 991..1500 maps to 0..4 (Indices for channels 1, 2, 3, 4, 5)
+                // pos = (val - 991) * 4 / (1500 - 991 + 1)
+                pos = (val - config.crsf_min) * 4 / (1500 - config.crsf_min + 1);
+            } else {
+                // 1500..2012 maps to 4..7 (Indices for channels 5, 6, 7, 8)
+                // pos = 4 + (val - 1500) * 3 / (2012 - 1500 + 1)
+                pos = 4 + (val - 1500) * 3 / (config.crsf_max - 1500 + 1);
+            }
             if (pos < 0) pos = 0; if (pos >= enabled_count) pos = enabled_count - 1;
             current_ch = enabled_chs[pos];
         }
