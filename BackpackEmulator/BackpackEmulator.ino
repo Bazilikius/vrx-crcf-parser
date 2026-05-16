@@ -11,6 +11,7 @@ struct Config {
     int ch_v;
     int ch_b;
     int l_grid;
+    uint16_t vtx_table[7][8]; // A, B, E, F, R, L, X
 };
 
 Config config;
@@ -18,6 +19,16 @@ Preferences prefs;
 WebServer server(80);
 CRSFParser crsf;
 ELRSBackpack backpack;
+
+const uint16_t default_vtx[7][8] = {
+    {5865,5845,5825,5805,5785,5765,5745,5725}, // A
+    {5733,5752,5771,5790,5809,5828,5847,5866}, // B
+    {5705,5685,5665,5645,5885,5905,5925,5945}, // E
+    {5740,5760,5780,5800,5820,5840,5860,5880}, // F
+    {5658,5695,5732,5769,5806,5843,5880,5917}, // R
+    {5362,5399,5436,5473,5510,5547,5584,5621}, // L (Std)
+    {5333,5373,5413,5453,5493,5533,5573,5613}  // X (ELRS L)
+};
 
 void loadConfig() {
     prefs.begin("backpack", false);
@@ -27,11 +38,13 @@ void loadConfig() {
         prefs.putInt("ch_v", 12);
         prefs.putInt("ch_b", 11);
         prefs.putInt("l_grid", 0);
+        prefs.putBytes("vtx", default_vtx, sizeof(default_vtx));
     }
     prefs.getBytes("uid", config.uid, 6);
     config.ch_v = prefs.getInt("ch_v");
     config.ch_b = prefs.getInt("ch_b");
     config.l_grid = prefs.getInt("l_grid");
+    prefs.getBytes("vtx", config.vtx_table, sizeof(config.vtx_table));
 }
 
 void saveConfig() {
@@ -39,31 +52,49 @@ void saveConfig() {
     prefs.putInt("ch_v", config.ch_v);
     prefs.putInt("ch_b", config.ch_b);
     prefs.putInt("l_grid", config.l_grid);
+    prefs.putBytes("vtx", config.vtx_table, sizeof(config.vtx_table));
 }
 
-const char* HTML_PAGE =
+String getVtxHtml() {
+    String html = "<h3>VTX Frequency Table (MHz)</h3><div style='overflow-x:auto;'><table><tr><th>Band</th>";
+    for(int c=1; c<=8; c++) html += "<th>CH" + String(c) + "</th>";
+    html += "</tr>";
+    const char* band_names[] = {"A", "B", "E", "F", "R", "L", "X (ELRS L)"};
+    for(int b=0; b<7; b++) {
+        html += "<tr><td><b>" + String(band_names[b]) + "</b></td>";
+        for(int c=0; c<8; c++) {
+            String name = "f_" + String(b) + "_" + String(c);
+            html += "<td><input type='number' name='" + name + "' value='" + String(config.vtx_table[b][c]) + "' style='width:60px;'></td>";
+        }
+        html += "</tr>";
+    }
+    html += "</table></div>";
+    return html;
+}
+
+const char* HTML_HEADER =
 "<!DOCTYPE html><html><head><title>Backpack Config</title>"
 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-"<style>body{font-family:sans-serif;margin:20px;}div{margin-bottom:15px;}label{display:block;}input,select{width:100%;padding:8px;} .btn{padding:10px 20px;background:#007bff;color:#fff;border:none;border-radius:4px;cursor:pointer;text-decoration:none;display:inline-block;} .btn-secondary{background:#6c757d;}</style></head>"
-"<body><h1>Backpack Emulator</h1>"
-"<form action='/save' method='POST'>"
-"<div><label>Binding UID (HEX 12 chars):</label><input type='text' name='uid' value='%02X%02X%02X%02X%02X%02X' pattern='[0-9A-Fa-f]{12}'></div>"
-"<div><label>Video CH (S2/CH12):</label><input type='number' name='ch_v' value='%d'></div>"
-"<div><label>Band CH (S3/CH11):</label><input type='number' name='ch_b' value='%d'></div>"
-"<div><label>L-Band Grid:</label><select name='l_grid'><option value='0' %s>Grid 1 (Standard)</option><option value='1' %s>Grid 2 (ELRS)</option></select></div>"
-"<input type='submit' class='btn' value='Save & Restart'></form>"
-"<hr><h2>Binding</h2><p>Put your VRX into binding mode, then click below:</p>"
-"<a href='/bind' class='btn btn-secondary'>Send Bind Packet</a>"
-"</body></html>";
+"<style>body{font-family:sans-serif;margin:20px;}div{margin-bottom:15px;}label{display:block;}input,select{padding:8px;} .btn{padding:10px 20px;background:#007bff;color:#fff;border:none;border-radius:4px;cursor:pointer;text-decoration:none;display:inline-block;} .btn-secondary{background:#6c757d;} table{border-collapse:collapse;} td,th{border:1px solid #ccc;padding:5px; text-align:center;}</style></head>"
+"<body><h1>Backpack Emulator</h1><form action='/save' method='POST'>";
 
 void handleRoot() {
-    char buf[2048];
-    snprintf(buf, sizeof(buf), HTML_PAGE,
-             config.uid[0], config.uid[1], config.uid[2], config.uid[3], config.uid[4], config.uid[5],
-             config.ch_v, config.ch_b,
-             config.l_grid == 0 ? "selected" : "",
-             config.l_grid == 1 ? "selected" : "");
-    server.send(200, "text/html", buf);
+    String html = HTML_HEADER;
+    char uid_buf[13];
+    snprintf(uid_buf, 13, "%02X%02X%02X%02X%02X%02X", config.uid[0], config.uid[1], config.uid[2], config.uid[3], config.uid[4], config.uid[5]);
+
+    html += "<div><label>Binding UID (HEX):</label><input type='text' name='uid' value='" + String(uid_buf) + "' pattern='[0-9A-Fa-f]{12}'></div>";
+    html += "<div><label>Video CH (S2/CH12):</label><input type='number' name='ch_v' value='" + String(config.ch_v) + "'></div>";
+    html += "<div><label>Band CH (S3/CH11):</label><input type='number' name='ch_b' value='" + String(config.ch_b) + "'></div>";
+    html += "<div><label>L-Band Selection:</label><select name='l_grid'><option value='0' " + String(config.l_grid==0?"selected":"") + ">Grid 1 (Standard)</option><option value='1' " + String(config.l_grid==1?"selected":"") + ">Grid 2 (ELRS -> Band X)</option></select></div>";
+
+    html += getVtxHtml();
+
+    html += "<br><input type='submit' class='btn' value='Save & Restart'></form>";
+    html += "<hr><h2>Binding</h2><p>Put your VRX into binding mode, then click below:</p>";
+    html += "<a href='/bind' class='btn btn-secondary'>Send Bind Packet</a>";
+    html += "</body></html>";
+    server.send(200, "text/html", html);
 }
 
 void handleSave() {
@@ -79,6 +110,16 @@ void handleSave() {
     if (server.hasArg("ch_v")) config.ch_v = server.arg("ch_v").toInt();
     if (server.hasArg("ch_b")) config.ch_b = server.arg("ch_b").toInt();
     if (server.hasArg("l_grid")) config.l_grid = server.arg("l_grid").toInt();
+
+    for(int b=0; b<7; b++) {
+        for(int c=0; c<8; c++) {
+            String name = "f_" + String(b) + "_" + String(c);
+            if (server.hasArg(name)) {
+                config.vtx_table[b][c] = server.arg(name).toInt();
+            }
+        }
+    }
+
     saveConfig();
     server.sendHeader("Location", "/");
     server.send(303);
@@ -99,7 +140,6 @@ void setup() {
     loadConfig();
 
     WiFi.mode(WIFI_AP_STA);
-
     uint8_t mac[6];
     memcpy(mac, config.uid, 6);
     mac[0] &= 0xFE;
@@ -146,13 +186,16 @@ void loop() {
                 last_band = current_band;
 
                 uint8_t msp_idx;
+                int display_band = current_band;
                 if (current_band == 5 && config.l_grid == 1) {
-                    msp_idx = 6 * 8 + current_ch;
+                    msp_idx = 6 * 8 + current_ch; // Band X
+                    display_band = 6;
                 } else {
                     msp_idx = current_band * 8 + current_ch;
                 }
                 backpack.sendVtxConfig(msp_idx);
-                Serial.printf("Switch: Band %d, Channel %d (MSP Index %d)\n", current_band, current_ch+1, msp_idx);
+                Serial.printf("Switch: Band %d, Channel %d (%d MHz)\n",
+                              current_band, current_ch+1, config.vtx_table[display_band][current_ch]);
             }
         }
         crsf.updated = false;
