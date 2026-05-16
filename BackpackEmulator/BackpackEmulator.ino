@@ -34,27 +34,26 @@ const uint16_t default_vtx[7][8] = {
 };
 
 void loadConfig() {
-    prefs.begin("backpack", false);
+    prefs.begin("backpack_v2", false); // Use new namespace to force reset
     if (!prefs.isKey("ch_v")) {
         memset(config.uid, 0, 6);
         config.ch_v = 12;
         config.ch_b = 11;
         config.l_grid = 0;
-        config.ch_mask = 0xFF; // All enabled
+        config.ch_mask = 0xFF; // ALL CHANNELS 1-8
         config.crsf_min = 991;
         config.crsf_max = 2012;
         memcpy(config.vtx_table, default_vtx, sizeof(default_vtx));
+        saveConfig();
     } else {
         prefs.getBytes("uid", config.uid, 6);
         config.ch_v = prefs.getInt("ch_v");
         config.ch_b = prefs.getInt("ch_b");
         config.l_grid = prefs.getInt("l_grid");
-        config.ch_mask = prefs.getUChar("ch_mask", 0xFF);
-        config.crsf_min = prefs.getInt("c_min", 991);
-        config.crsf_max = prefs.getInt("c_max", 2012);
-        if (prefs.getBytes("vtx", config.vtx_table, sizeof(config.vtx_table)) != sizeof(config.vtx_table)) {
-            memcpy(config.vtx_table, default_vtx, sizeof(default_vtx));
-        }
+        config.ch_mask = prefs.getUChar("ch_mask");
+        config.crsf_min = prefs.getInt("c_min");
+        config.crsf_max = prefs.getInt("c_max");
+        prefs.getBytes("vtx", config.vtx_table, sizeof(config.vtx_table));
     }
 }
 
@@ -207,29 +206,26 @@ void loop() {
         int current_ch = -1;
         if (v_idx >= 0 && v_idx < 16 && enabled_count > 0) {
             int val = crsf.channels[v_idx];
-            // Logically: 1=min, 5=mid, 8=max
-            // Value range 991 to 2012. Midpoint 1500.
-            // Split into two linear segments
+            // Logically: min=CH1, mid(1500)=CH5, max=CH8
             int pos = 0;
             if (val <= 1500) {
-                // 991..1500 maps to 0..4 (Indices for channels 1, 2, 3, 4, 5)
-                // pos = (val - 991) * 4 / (1500 - 991 + 1)
-                pos = (val - config.crsf_min) * 4 / (1500 - config.crsf_min + 1);
+                // Map [config.crsf_min, 1500] -> [0, 4]
+                pos = map(constrain(val, config.crsf_min, 1500), config.crsf_min, 1500, 0, 4);
             } else {
-                // 1500..2012 maps to 4..7 (Indices for channels 5, 6, 7, 8)
-                // pos = 4 + (val - 1500) * 3 / (2012 - 1500 + 1)
-                pos = 4 + (val - 1500) * 3 / (config.crsf_max - 1500 + 1);
+                // Map [1500, config.crsf_max] -> [4, 7]
+                pos = map(constrain(val, 1500, config.crsf_max), 1500, config.crsf_max, 4, 7);
             }
-            if (pos < 0) pos = 0; if (pos >= enabled_count) pos = enabled_count - 1;
-            current_ch = enabled_chs[pos];
+            // If some channels are disabled, we scale 'pos' across the enabled list
+            // However, the user said "not skiped chanel", so usually all 8 are enabled.
+            // If they did disable some, we treat 'pos' as an index into the enabled list.
+            int idx = map(pos, 0, 7, 0, enabled_count - 1);
+            current_ch = enabled_chs[idx];
         }
 
         int current_band = -1;
         if (b_idx >= 0 && b_idx < 16) {
             int val = crsf.channels[b_idx];
-            int pos = (val - config.crsf_min) * 6 / (config.crsf_max - config.crsf_min + 1);
-            if (pos < 0) pos = 0; if (pos > 5) pos = 5;
-            current_band = pos;
+            current_band = map(constrain(val, config.crsf_min, config.crsf_max), config.crsf_min, config.crsf_max, 0, 5);
         }
 
         if (current_ch != -1 && current_band != -1) {
@@ -239,8 +235,8 @@ void loop() {
                 if (current_band == 5 && config.l_grid == 1) { msp_idx = 6 * 8 + current_ch; log_band = 6; }
                 else { msp_idx = current_band * 8 + current_ch; }
                 backpack.sendVtxConfig(msp_idx);
-                Serial.printf("Switch: B%d C%d (%d MHz) [CRSF: %d]\n",
-                              current_band, current_ch+1, config.vtx_table[log_band][current_ch], crsf.channels[v_idx]);
+                Serial.printf("CRSF: %d | Switching to B%d C%d (%d MHz)\n",
+                              crsf.channels[v_idx], current_band, current_ch+1, config.vtx_table[log_band][current_ch]);
             }
         }
         crsf.updated = false;
