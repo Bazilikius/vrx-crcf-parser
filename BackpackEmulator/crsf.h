@@ -12,8 +12,8 @@ public:
 
     void begin(HardwareSerial &serial) {
         _serial = &serial;
-        // CRSF baud rate 420000
-        _serial->begin(420000, SERIAL_8N1, 16, -1); // RX pin 16, no TX
+        // CRSF baud rate 416700
+        _serial->begin(416700, SERIAL_8N1, 16, -1); // RX pin 16, no TX
     }
 
     void handle() {
