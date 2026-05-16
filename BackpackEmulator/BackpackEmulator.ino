@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Preferences.h>
+#include <esp_wifi.h>
 #include "crsf.h"
 #include "elrs_backpack.h"
 
@@ -20,7 +21,7 @@ ELRSBackpack backpack;
 
 void loadConfig() {
     prefs.begin("backpack", false);
-    if (!prefs.isKey("uid")) {
+    if (!prefs.isKey("ch_v")) {
         uint8_t default_uid[6] = {0,0,0,0,0,0};
         prefs.putBytes("uid", default_uid, 6);
         prefs.putInt("ch_v", 12);
@@ -46,8 +47,8 @@ const char* HTML_PAGE =
 "<style>body{font-family:sans-serif;margin:20px;}div{margin-bottom:15px;}label{display:block;}input,select{width:100%;padding:8px;}</style></head>"
 "<body><h1>Config</h1><form action='/save' method='POST'>"
 "<div><label>UID (HEX):</label><input type='text' name='uid' value='%02X%02X%02X%02X%02X%02X'></div>"
-"<div><label>Video CH (S2):</label><input type='number' name='ch_v' value='%d'></div>"
-"<div><label>Band CH (S3):</label><input type='number' name='ch_b' value='%d'></div>"
+"<div><label>Video CH (S2/CH12):</label><input type='number' name='ch_v' value='%d'></div>"
+"<div><label>Band CH (S3/CH11):</label><input type='number' name='ch_b' value='%d'></div>"
 "<div><label>L-Band:</label><select name='l_grid'><option value='0' %s>Std</option><option value='1' %s>ELRS</option></select></div>"
 "<input type='submit' value='Save'></form></body></html>";
 
@@ -64,9 +65,11 @@ void handleRoot() {
 void handleSave() {
     if (server.hasArg("uid")) {
         String s = server.arg("uid");
-        for(int i=0; i<6; i++) {
-            String b = s.substring(i*2, i*2+2);
-            config.uid[i] = strtol(b.c_str(), NULL, 16);
+        if (s.length() >= 12) {
+            for(int i=0; i<6; i++) {
+                String b = s.substring(i*2, i*2+2);
+                config.uid[i] = strtol(b.c_str(), NULL, 16);
+            }
         }
     }
     if (server.hasArg("ch_v")) config.ch_v = server.arg("ch_v").toInt();
@@ -75,6 +78,7 @@ void handleSave() {
     saveConfig();
     server.sendHeader("Location", "/");
     server.send(303);
+    delay(500);
     ESP.restart();
 }
 
@@ -85,7 +89,15 @@ void setup() {
     Serial.begin(115200);
     loadConfig();
 
+    // Initializing WiFi
     WiFi.mode(WIFI_AP_STA);
+
+    // Apply UID to MAC address for ELRS compatibility
+    uint8_t mac[6];
+    memcpy(mac, config.uid, 6);
+    mac[0] &= 0xFE; // Unicast
+    esp_wifi_set_mac(WIFI_IF_STA, mac);
+
     WiFi.softAP("Backpack-Emul");
 
     server.on("/", handleRoot);
@@ -108,6 +120,7 @@ void loop() {
 
         int current_ch = -1;
         if (v_idx >= 0 && v_idx < 16) {
+            // Map 172-1811 to 0-7
             current_ch = (crsf.channels[v_idx] - 172) * 8 / (1811 - 172 + 1);
             if (current_ch < 0) current_ch = 0;
             if (current_ch > 7) current_ch = 7;
@@ -115,6 +128,7 @@ void loop() {
 
         int current_band = -1;
         if (b_idx >= 0 && b_idx < 16) {
+            // Map 172-1811 to 0-5
             current_band = (crsf.channels[b_idx] - 172) * 6 / (1811 - 172 + 1);
             if (current_band < 0) current_band = 0;
             if (current_band > 5) current_band = 5;
@@ -127,12 +141,13 @@ void loop() {
 
                 uint8_t msp_idx;
                 if (current_band == 5 && config.l_grid == 1) {
-                    msp_idx = 6 * 8 + current_ch; // Map to Band X
+                    // remap Grid 2 to Band X
+                    msp_idx = 6 * 8 + current_ch;
                 } else {
                     msp_idx = current_band * 8 + current_ch;
                 }
                 backpack.sendVtxConfig(msp_idx);
-                Serial.printf("Switch to B%d C%d (MSP Idx %d)\n", current_band, current_ch+1, msp_idx);
+                Serial.printf("Switch: Band %d, Channel %d (MSP Index %d)\n", current_band, current_ch+1, msp_idx);
             }
         }
         crsf.updated = false;
