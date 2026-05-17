@@ -5,17 +5,18 @@ This standalone ESP32 firmware acts as a bridge between a remote control (using 
 It is specifically designed for users with a **RadioMaster Boxer** or similar radio, allowing you to switch video channels and bands using your radio's switches.
 
 ## Features
-- **CRSF Listener**: Listens on **GPIO 16 (RX2)** at 416,700 baud.
+- **CRSF Listener**: Listens on **GPIO 16 (RX2)** with configurable baud rate (default 416,700).
 - **Remote Switching (S2/S3)**:
-  - **S2 (Channel 12)**: Piecewise linear mapping for the Boxer:
-    - `991us` = Channel 1
+  - **S2 (Channel 12)**: Discrete mapping for all 8 channels:
+    - `988us` = Channel 1
     - `1500us` = Channel 5 (Middle)
     - `2012us` = Channel 8
-  - **S3 (Channel 11)**: Switches through 6 bands (A, B, E, F, R, L).
-- **Web Configurator**: Built-in WiFi portal for easy setup.
+  - **S3 (Channel 11)**: Discrete mapping for all 6 bands:
+    - `988`, `1193`, `1398`, `1602`, `1807`, `2012` us.
+- **Web Configurator**: Built-in WiFi portal for easy setup and calibration.
 - **Binding Support**: Manual binding trigger to pair with your VRX.
 - **Dual L-Band Support**: Choose between standard and ELRS L-band grids.
-- **VTX Table Editor**: Customize frequencies for all 56 channels.
+- **VTX Table Editor**: Fully customize frequencies for all 56 channels.
 - **Persistence**: Settings are saved in the ESP32's memory (NVS).
 
 ## Hardware Setup
@@ -34,8 +35,10 @@ It is specifically designed for users with a **RadioMaster Boxer** or similar ra
 1. After uploading, search for a WiFi network named **"Backpack-Emul"** and connect to it.
 2. Open your web browser and go to `http://192.168.4.1`.
 3. Enter your **Binding UID** (this must match the UID generated from your binding phrase on your ELRS transmitter).
-4. Click **Save & Restart**.
-5. To bind your VRX:
+4. Select your preferred **L-Band grid**.
+   - *Tip: If you select Grid 2 (ELRS), the bridge will send "Band X" commands to the receiver. Ensure your receiver's Band X is configured with the correct frequencies.*
+5. Click **Save & Restart**.
+6. To bind your VRX:
    - Put your VRX into binding mode (refer to your VRX documentation).
    - Click the **"Send Bind Packet"** button on the configuration page.
 
